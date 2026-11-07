@@ -1,0 +1,124 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>東京タクシー 営業判断 v1.4 | 日報×GPX×天候照合</title><style>
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN',sans-serif;background:#0a1729;color:#eef5ff}*{box-sizing:border-box}body{max-width:1150px;margin:auto;padding:16px}h1{font-size:23px;margin:4px 0}h2{font-size:17px;margin:0 0 12px}p{line-height:1.55}.muted{color:#a6b9d0;font-size:13px}.warn{color:#f8c78e}.good{color:#80dfbe}.layout{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:12px 0}.card{background:#17283e;border:1px solid #314966;border-radius:14px;padding:15px}.kpi{font-size:28px;font-weight:750;font-variant-numeric:tabular-nums}input,select,button{font-size:15px;background:#263e5c;color:#fff;border:1px solid #5c789a;border-radius:9px;padding:10px;max-width:100%}input[type=file]{width:100%;margin-top:7px}label{display:block;line-height:1.8}.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}.scroll{overflow:auto;max-height:500px}table{width:100%;border-collapse:collapse;font-size:12px;min-width:580px}td,th{border-bottom:1px solid #39506b;padding:8px;text-align:left}th{position:sticky;top:0;background:#17283e}td.n{text-align:right;font-variant-numeric:tabular-nums}.tag{display:inline-block;background:#273b55;border-radius:6px;padding:3px 7px;font-size:12px}.row{padding:8px 0;border-bottom:1px solid #334864}.mini{font-size:12px}button{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid #79b5ff}a{color:#9dc9ff}
+</style></head><body>
+<h1>🚕 東京タクシー営業判断 v1.4</h1><p class="muted">日報の乗降時刻 × GPXの位置を照合する独立版。公開用HTMLに乗務履歴は含みません。データは端末内でのみ処理します。</p>
+<div class="card"><h2>① データ読込</h2><div class="layout"><label>25乗務マスターCSV<input id="masterFile" type="file" accept=".csv,text/csv"></label><label>日報の個別乗降CSV<input id="ridesFile" type="file" accept=".csv,text/csv"></label><label>GPX（複数可）<input id="gpxFiles" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple></label></div><p id="status" class="muted">まずマスターCSVを選び、個別乗降CSVやGPXがあれば追加してください。</p><p class="warn mini">GPX・日報のPDF・個人のCSVはPublic GitHubにアップロードしないでください。ファイルを選択するときだけ端末内で解析します。</p></div>
+<div class="layout"><div class="card"><div class="muted">マスターの日数</div><div class="kpi" id="days">—</div></div><div class="card"><div class="muted">税込売上（確認済）</div><div class="kpi" id="sales">—</div></div><div class="card"><div class="muted">乗務日報の人員欄</div><div class="kpi" id="pax">—</div></div><div class="card"><div class="muted">取込済み個別乗車行</div><div class="kpi" id="rideN">—</div></div></div>
+<div class="card"><h2>② 表示する乗務日</h2><div class="controls"><label>乗務日 <select id="date"><option value="">すべて</option></select></label><button id="sample">個別乗降CSVのひな形を保存</button><button id="export">照合結果CSVを保存</button></div><p class="muted">時刻を持つ個別乗降CSVを読み込むと、降車→次の乗車の間隔・乗車時刻のGPS位置を検証します。日報の自動読取機能ではありません。</p></div>
+<div class="layout"><div class="card"><h2>③ 乗車間隔の確認</h2><div id="gaps" class="muted">個別乗降CSVを読み込んでください。</div></div><div class="card"><h2>④ GPX照合品質</h2><div id="quality" class="muted">GPXを読み込んでください。</div></div></div>
+<div class="card"><h2>⑤ 個別乗降記録とGPS位置</h2><div class="scroll"><table><thead><tr><th>乗務日</th><th>乗車</th><th>降車</th><th>乗車地点（日報）</th><th>降車地点（日報）</th><th>次乗車まで</th><th>GPS照合</th></tr></thead><tbody id="rideRows"><tr><td colspan="7">個別乗降データ未入力</td></tr></tbody></table></div></div>
+<div class="card" id="weather-panel"><h2>⑥ 乗務日別・時間別の過去天候（新機能）</h2>
+<p class="muted">2019年人流データは使用しません。選択した乗務日の07:00〜翌03:00を、東京都内の代表観測地点の推定気象データと照合します。地点を移動した実際の車両位置の天気ではありません。</p>
+<div class="layout"><label>代表地点 <select id="weatherPoint"><option value="35.6812,139.7671">東京駅付近</option><option value="35.6285,139.7388">品川駅付近</option><option value="35.5494,139.7798">羽田空港付近</option></select></label><label>過去天候CSV（任意）<input type="file" id="weatherFile" accept=".csv,text/csv"></label></div>
+<div class="controls"><button id="fetchWeather">代表地点の過去天候を取得</button><button id="exportWeather">天候CSVを保存</button></div>
+<p id="weatherStatus" class="muted">まだ天候データはありません。マスターCSVを読み込み、取得ボタンを押してください。天候データの取得先へ乗務日範囲と代表地点の座標のみ送信します。日報・GPX・売上は送信しません。</p>
+<div class="layout"><div class="card"><div class="muted">天候の照合日数</div><div class="kpi" id="weatherMatched">—</div></div><div class="card"><div class="muted">雨が観測された乗務日</div><div class="kpi" id="weatherRainDays">—</div></div></div>
+<div class="scroll"><table><thead><tr><th>乗務日</th><th>代表地点</th><th>観測時間</th><th>降水時間</th><th>降水合計</th><th>平均気温</th><th>税込売上</th><th>注意</th></tr></thead><tbody id="weatherRows"><tr><td colspan="8">天候未取得</td></tr></tbody></table></div>
+<p class="warn mini">過去天候は再解析モデル等の推定値です。降水合計や雨時間だけでGO需要・乗車件数の因果関係は判定できません。天候情報が欠損した日は集計対象から除外します。Open-Meteo無料APIの非商用利用条件にご注意ください。タクシー営業の商用運用では適切な契約や別のデータ源が必要です。</p></div>
+<div class="card"><h2>⑦ この結果で判断できること／できないこと</h2><p><span class="good">確認できる：</span>日報上の乗降日時、連続する乗車間隔、各時刻のGPX最近傍記録点の有無・座標（端末内のみ）。</p><p><span class="warn">まだ確定できない：</span>GO配車受付時刻、正式な空車距離、配車確率、実際の需要、休憩・迎車を除いた空車時間。これらを「乗車間隔」と混同しません。</p><p class="muted">時刻は日本時間(JST)で扱います。GPXはタイムスタンプに基づき日本時間へ換算します。時刻の押し忘れ・GPS欠損がある乗務は個別確認が必要です。既存のコックピット・保存領域・GitHubの公開ファイルには一切書き込みません。</p></div>
+<script>
+'use strict';const $=id=>document.getElementById(id);let master=[],rides=[],traces=new Map(),results=[];
+const fmt=n=>Number(n||0).toLocaleString('ja-JP');const safe=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function csvParse(s){s=s.replace(/^\uFEFF/,'');let rows=[],row=[],cell='',q=false;for(let i=0;i<s.length;i++){const c=s[i];if(q){if(c==='"'&&s[i+1]==='"'){cell+='"';i++}else if(c==='"')q=false;else cell+=c}else if(c==='"')q=true;else if(c===','){row.push(cell);cell=''}else if(c==='\n'){row.push(cell.replace(/\r$/,''));rows.push(row);row=[];cell=''}else cell+=c}if(row.length||cell){row.push(cell);rows.push(row)}const heads=rows.shift()||[];return rows.filter(r=>r.some(Boolean)).map(r=>Object.fromEntries(heads.map((k,i)=>[k,r[i]||''])))}
+function dateTime(d,clock){if(!/^\d{4}-\d{2}-\d{2}$/.test(d)||!/^\d{1,2}:\d{2}$/.test(clock))return NaN;const [h,m]=clock.split(':').map(Number);if(h>23||m>59)return NaN;const x=Date.parse(d+'T'+clock.padStart(5,'0')+':00+09:00');return h<6?x+86400000:x}
+function findNear(arr,t){if(!arr||!arr.length||!Number.isFinite(t))return null;let lo=0,hi=arr.length;while(lo<hi){let m=(lo+hi)>>1;if(arr[m].t<t)lo=m+1;else hi=m}let a=arr[lo],b=arr[lo-1],p=!b?a:!a?b:Math.abs(a.t-t)<Math.abs(b.t-t)?a:b;return p&&Math.abs(p.t-t)<=120000?p:null}
+async function parseGPX(f){let doc=new DOMParser().parseFromString(await f.text(),'application/xml');if(doc.querySelector('parsererror'))throw Error(f.name+'のXMLが不正です');let arr=[];for(const pt of doc.querySelectorAll('trkpt')){const node=pt.getElementsByTagName('time')[0];const t=Date.parse(node?.textContent||''),lat=+pt.getAttribute('lat'),lon=+pt.getAttribute('lon');if(Number.isFinite(t)&&Math.abs(lat)<=90&&Math.abs(lon)<=180)arr.push({t,lat,lon})}arr.sort((a,b)=>a.t-b.t);return arr}
+function jstDate(t){return new Date(t+9*3600000).toISOString().slice(0,10)}
+function update(){const d=$('date').value;$('days').textContent=master.length||'—';$('sales').textContent=master.length?'¥'+fmt(master.reduce((a,x)=>a+(+x['税込売上円']||0),0)):'—';$('pax').textContent=master.length?fmt(master.reduce((a,x)=>a+(+x['人員欄']||0),0)):'—';$('rideN').textContent=rides.length||'—';results=[];let countGap=0,sum=0,matched=0,noGps=0;let rr=rides.filter(r=>!d||r['乗務日']===d).map(r=>({...r,start:dateTime(r['乗務日'],r['乗車時刻']),end:dateTime(r['乗務日'],r['降車時刻'])})).filter(x=>Number.isFinite(x.start)&&Number.isFinite(x.end));rr.sort((a,b)=>a.start-b.start);
+for(let i=0;i<rr.length;i++){const x=rr[i],next=rr[i+1],gap=next&&x['乗務日']===next['乗務日']?Math.round((next.start-x.end)/60000):null;let gtext='—';if(gap!==null){if(gap>=0&&gap<=240){gtext=gap+'分';sum+=gap;countGap++}else gtext='要確認'}let points=traces.get(x['乗務日'])||[],p=findNear(points,x.start),gp=p?('±'+Math.round(Math.abs(p.t-x.start)/1000)+'秒で位置点あり'):'GPS位置未照合';if(p)matched++;else noGps++;results.push({day:x['乗務日'],pickup:x['乗車時刻'],drop:x['降車時刻'],from:x['乗車地点'],to:x['降車地点'],gap:gtext,gps:gp,lat:p?p.lat:'',lon:p?p.lon:''})}
+$('gaps').innerHTML='<div class="row">乗車記録 <strong>'+rr.length+'件</strong></div><div class="row">0～240分の乗車間隔 <strong>'+countGap+'区間</strong></div><div class="row">同区間の平均 <strong>'+(countGap?Math.round(sum/countGap)+'分':'—')+'</strong></div><p class="warn mini">休憩・回送・GO迎車時間を含み得るため、空車待ち時間ではありません。</p>';
+$('quality').innerHTML='<div class="row">読み込んだGPX乗務日 <b>'+traces.size+'日</b></div><div class="row">乗車時刻の±2分以内にGPS点あり <b>'+matched+'件</b></div><div class="row">未照合 <b>'+noGps+'件</b></div><p class="muted mini">GPS座標はCSV保存時のみ出力。Web公開先へ送信しません。</p>';
+$('rideRows').innerHTML=results.length?results.slice(0,1200).map(x=>'<tr><td>'+safe(x.day)+'</td><td>'+safe(x.pickup)+'</td><td>'+safe(x.drop)+'</td><td>'+safe(x.from)+'</td><td>'+safe(x.to)+'</td><td>'+safe(x.gap)+'</td><td>'+safe(x.gps)+'</td></tr>').join(''):'<tr><td colspan="7">日報の乗降行が未入力です</td></tr>';
+$('status').textContent='マスター'+master.length+'日／乗降行'+rides.length+'件／GPX'+traces.size+'日。読み取りはブラウザ内だけで完結します。'}
+function makeCSV(name,rows){let s='\uFEFF'+rows.map(a=>a.map(x=>'"'+String(x??'').replace(/"/g,'""')+'"').join(',')).join('\r\n')+'\r\n';let url=URL.createObjectURL(new Blob([s],{type:'text/csv;charset=utf-8'})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
+$('sample').onclick=()=>makeCSV('taxi_ride_import_template_v14.csv',[['乗務日','乗車時刻','降車時刻','乗車地点','降車地点','運賃税込円','照合メモ']]);
+$('export').onclick=()=>makeCSV('taxi_v14_ride_gpx_matches_private.csv',[['乗務日','乗車時刻','降車時刻','乗車地点','降車地点','次乗車までの時間（空車時間ではない）','GPX照合','緯度','経度'],...results.map(x=>[x.day,x.pickup,x.drop,x.from,x.to,x.gap,x.gps,x.lat,x.lon])]);
+$('masterFile').onchange=async e=>{try{master=csvParse(await e.target.files[0].text());setDates();update()}catch(err){$('status').textContent=err.message}};
+$('ridesFile').onchange=async e=>{try{let tmp=csvParse(await e.target.files[0].text());if(tmp.length&&!('乗務日' in tmp[0]&&'乗車時刻' in tmp[0]&&'降車時刻' in tmp[0]))throw Error('必要な列がありません');rides=tmp;setDates();update()}catch(err){$('status').textContent=err.message}};
+$('gpxFiles').onchange=async e=>{let n=0;try{for(let f of e.target.files){const points=await parseGPX(f);if(!points.length)continue;let byDay=new Map();for(let p of points){const day=jstDate(p.t-6*3600000);if(!byDay.has(day))byDay.set(day,[]);byDay.get(day).push(p)}for(let [day,arr] of byDay){let old=traces.get(day)||[];traces.set(day,old.concat(arr).sort((a,b)=>a.t-b.t))}n++}update();$('status').textContent+=' GPX '+n+'ファイルを解析しました。'}catch(err){$('status').textContent='GPX読込エラー '+err.message}};
+function setDates(){const v=$('date').value,dates=[...new Set(master.map(r=>r['乗務日']).concat(rides.map(r=>r['乗務日'])))].sort();$('date').innerHTML='<option value="">すべて</option>'+dates.map(d=>'<option>'+safe(d)+'</option>').join('');if(dates.includes(v))$('date').value=v}
+$('date').onchange=update;update();
+
+// v1.4: Historical representative-site weather, independent of ride/GPX/location history.
+let weatherHourly=new Map(),weatherPlace='東京駅付近';
+function weatherLocation(){return $('weatherPoint').options[$('weatherPoint').selectedIndex].textContent}
+function shiftWeatherSummary(day){
+ const start=Date.parse(day+'T07:00:00+09:00');if(!Number.isFinite(start))return null;
+ let hours=0,rainH=0,rainTotal=0,tempSum=0,tempN=0;
+ for(let h=0;h<20;h++){
+  const key=new Date(start+h*3600000+9*3600000).toISOString().slice(0,13);const x=weatherHourly.get(key);
+  if(!x)continue;
+  hours++;
+  if(Number.isFinite(x.rain)){rainTotal+=x.rain;if(x.rain>=0.1)rainH++}
+  if(Number.isFinite(x.temp)){tempSum+=x.temp;tempN++}
+ }
+ return hours?{hours,rainH,rainTotal,temp:tempN?tempSum/tempN:null}:null;
+}
+function updateWeather(){
+ const selected=$('date').value;
+ const days=[...new Set(master.map(x=>x['乗務日']).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)))].sort().filter(x=>!selected||x===selected);
+ let included=0,rainDays=0;
+ $('weatherRows').innerHTML=days.length?days.map(d=>{
+  const w=shiftWeatherSummary(d);const m=master.find(x=>x['乗務日']===d)||{};
+  if(w){included++;if(w.rainH)rainDays++}
+  const reliable=w&&w.hours>=18;
+  return '<tr><td>'+safe(d)+'</td><td>'+safe(weatherPlace)+'</td><td>'+(w?w.hours+'/20':'—')+'</td><td>'+(w?w.rainH+'h':'—')+'</td><td>'+(w?w.rainTotal.toFixed(1)+'mm':'—')+'</td><td>'+(w&&w.temp!==null?w.temp.toFixed(1)+'℃':'—')+'</td><td>¥'+fmt(+m['税込売上円']||0)+'</td><td>'+(reliable?'代表地点の参考値':(w?'一部欠損':'未取得'))+'</td></tr>';
+ }).join(''):'<tr><td colspan="8">マスターCSVが未読込です</td></tr>';
+ $('weatherMatched').textContent=days.length?included+'/'+days.length:'—';
+ $('weatherRainDays').textContent=days.length?rainDays+'日':'—';
+}
+const oldUpdate=update;
+// Hook updates without altering v1.3's ride/GPX logic
+update=function(){oldUpdate();updateWeather()};
+$('fetchWeather').onclick=async()=>{
+ const ds=[...new Set(master.map(x=>x['乗務日']).filter(d=>/^\d{4}-\d{2}-\d{2}$/.test(d)))].sort();
+ if(!ds.length){$('weatherStatus').textContent='先に25乗務マスターCSVを読み込んでください。';return}
+ const last=ds[ds.length-1], end=new Date(Date.parse(last+'T00:00:00+09:00')+86400000).toISOString().slice(0,10);
+ const [lat,lon]=$('weatherPoint').value.split(',');const url=new URL('https://archive-api.open-meteo.com/v1/archive');
+ const p={latitude:lat,longitude:lon,start_date:ds[0],end_date:end,hourly:'precipitation,temperature_2m,wind_speed_10m',timezone:'Asia/Tokyo'};
+ for(let [k,v]of Object.entries(p))url.searchParams.set(k,v);
+ $('fetchWeather').disabled=true;$('weatherStatus').textContent='代表地点の過去天候を取得しています…';
+ try{
+  const response=await fetch(url.toString());if(!response.ok)throw Error('HTTP '+response.status);
+  const obj=await response.json();const hr=obj.hourly;
+  if(!Array.isArray(hr?.time))throw Error('時間別データなし');
+  const next=new Map();let missing=0;
+  for(let i=0;i<hr.time.length;i++){
+   const key=String(hr.time[i]).slice(0,13);
+   const rawR=hr.precipitation?.[i],rawT=hr.temperature_2m?.[i],rawW=hr.wind_speed_10m?.[i];
+   if(rawR===null||rawR===undefined){missing++;continue}
+   next.set(key,{rain:Number(rawR),temp:rawT==null?null:Number(rawT),wind:rawW==null?null:Number(rawW)});
+  }
+  weatherHourly=next;weatherPlace=weatherLocation();updateWeather();
+  $('weatherStatus').textContent=weatherPlace+'：'+next.size+'時間分取得。欠測 '+missing+'時間。時刻はJST、時刻別の代表地点推定値です。データはブラウザ内のみ。';
+ }catch(err){$('weatherStatus').textContent='取得失敗：'+err.message+'。通信制限や商用API条件を確認し、過去天候CSVからの読み込みも利用できます。'}
+ finally{$('fetchWeather').disabled=false}
+};
+$('weatherFile').onchange=async e=>{
+ try{
+  const file=e.target.files?.[0];if(!file)return;
+  const lines=csvParse(await file.text());if(!lines.length)throw Error('データがありません');
+  const map=new Map();for(let r of lines){
+   const k=String(r['時刻(JST)']||'').slice(0,13);
+   if(!/^\d{4}-\d{2}-\d{2}T\d{2}$/.test(k))continue;
+   const raw=String(r['降水量(mm)']||'').trim();if(raw==='')continue;
+   const rain=Number(raw),temp=String(r['気温(℃)']||'').trim(),wind=String(r['風速(km/h)']||'').trim();
+   if(!Number.isFinite(rain)||rain<0)continue;
+   map.set(k,{rain,temp:temp===''?null:Number(temp),wind:wind===''?null:Number(wind)});
+  }
+  if(!map.size)throw Error('必要な列：時刻(JST)、降水量(mm)');
+  weatherHourly=map;weatherPlace=lines[0]['代表地点']||'CSV指定地点';updateWeather();
+  $('weatherStatus').textContent='天候CSV '+map.size+'時間を読み込みました。出所・地点・欠測の確認が必要です。';
+ }catch(err){$('weatherStatus').textContent='天候CSV読込エラー：'+err.message}
+};
+$('exportWeather').onclick=()=>{
+ if(!weatherHourly.size){$('weatherStatus').textContent='保存する天候データがありません。';return}
+ makeCSV('taxi_historical_weather_v14_private.csv',[
+ ['時刻(JST)','代表地点','降水量(mm)','気温(℃)','風速(km/h)'],
+ ...[...weatherHourly.entries()].sort(([a],[b])=>a.localeCompare(b)).map(([k,w])=>[k+':00',weatherPlace,w.rain,w.temp??'',w.wind??''])
+ ]);
+};
+$('weatherPoint').onchange=()=>{$('weatherStatus').textContent='代表地点を変更しました。新しい地点のデータは「過去天候を取得」を押して反映してください。'};
+updateWeather();
+
+</script></body></html>
